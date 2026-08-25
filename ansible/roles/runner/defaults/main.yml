@@ -18,6 +18,6 @@ runner_name: lima-lab-runner
 # (та же модель, что у kind/kubectl/helm в ролях выше)
 runner_version: latest
 
-# Путь юнита предсказуем: actions.runner.<owner>.<repo>.<runner-name>.service —
-# на него опирается идемпотентность установки сервиса
-runner_unit: "actions.runner.sulinivan.java-production-operations-lab.{{ runner_name }}.service"
+# Путь юнита предсказуем: actions.runner.<owner>-<repo>.<runner-name>.service
+# (owner и repo соединяются ДЕФИСОМ) — на него опирается идемпотентность сервиса
+runner_unit: "actions.runner.sulinivan-java-production-operations-lab.{{ runner_name }}.service"

@@ -47,7 +47,9 @@
     cmd: >-
       helm upgrade --install {{ helm_release_name }} /opt/lab/helm/cloudshare
       -n cloudshare
+      --set image.repository=docker.io/{{ dockerhub_username | default('sulinivan') }}/cloudshare
       --set image.tag={{ app_image_tag }}
+      --set serviceMonitor.enabled=true
       --atomic --timeout {{ helm_timeout }}
 
 - name: Wait for rollout

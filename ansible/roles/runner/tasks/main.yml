@@ -101,3 +101,70 @@
   register: runner_svc_start
   changed_when: "'started' in runner_svc_start.stdout | default('')"
   when: runner_registered.stat.exists
+
+# 4. Kubeconfig для CD-задач runner'а.
+# Выделенный ServiceAccount вместо копии admin-kubeconfig пользователя:
+# креды CD изолированы, отзываются удалением SA и не переживают кластер.
+- name: Create CD deployer service account, binding and token
+  # От имени ansible_user: у root нет kubeconfig
+  become: false
+  ansible.builtin.shell: |
+    set -e
+    kubectl create sa cd-deployer -n kube-system --dry-run=client -o yaml | kubectl apply -f -
+    cat <<'EOF' | kubectl apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: cd-deployer-admin
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+      - kind: ServiceAccount
+        name: cd-deployer
+        namespace: kube-system
+    EOF
+    cat <<'EOF' | kubectl apply -f -
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cd-deployer-token
+      namespace: kube-system
+      annotations:
+        kubernetes.io/service-account.name: cd-deployer
+    type: kubernetes.io/service-account-token
+    EOF
+    for _ in $(seq 1 30); do
+      TOKEN=$(kubectl -n kube-system get secret cd-deployer-token -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)
+      [ -n "$TOKEN" ] && break
+      sleep 2
+    done
+    [ -n "$TOKEN" ] || { echo "token not populated" >&2; exit 1; }
+    echo "TOKEN=$TOKEN"
+    echo "SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+    echo "CA=$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+  args:
+    executable: /bin/bash
+  register: cd_sa
+  changed_when: false
+
+- name: Parse CD credentials
+  ansible.builtin.set_fact:
+    kubeconfig_token: "{{ (cd_sa.stdout_lines | select('match', '^TOKEN=') | first) | split('=') | last }}"
+    kubeconfig_server: "{{ (cd_sa.stdout_lines | select('match', '^SERVER=') | first) | split('=') | last }}"
+    kubeconfig_ca_data: "{{ (cd_sa.stdout_lines | select('match', '^CA=') | first) | split('=') | last }}"
+
+- name: Install CD kubeconfig for runner group
+  ansible.builtin.template:
+    src: kubeconfig-cd.j2
+    dest: /opt/lab/kubeconfig-cd
+    owner: root
+    group: "{{ runner_user }}"
+    mode: "0640"
+
+- name: Verify CD kubeconfig works for runner user
+  become_user: "{{ runner_user }}"
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig=/opt/lab/kubeconfig-cd get ns cloudshare -o name
+  changed_when: false
