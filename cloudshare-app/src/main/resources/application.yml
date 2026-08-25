@@ -1,0 +1,171 @@
+server:
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:20}
+
+spring:
+  application:
+    name: cloudshare
+  config:
+    import: optional:file:.env[.properties]
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cloudshare}
+    username: ${SPRING_DATASOURCE_USERNAME:cloudshare_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: CloudShareHikariPool
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:50}
+      minimum-idle: 10
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      leak-detection-threshold: 2000
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+  jpa:
+    open-in-view: false
+
+  # Default Spring Redis (cache-aside) configuration
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      timeout-ms: ${SPRING_DATA_REDIS_TIMEOUT_MS:2000}
+      pool:
+        max-total: ${SPRING_DATA_REDIS_POOL_MAX_TOTAL:16}
+        max-idle: ${SPRING_DATA_REDIS_POOL_MAX_IDLE:8}
+        min-idle: ${SPRING_DATA_REDIS_POOL_MIN_IDLE:2}
+    web:
+      pageable:
+        max-page-size: ${SPRING_DATA_WEB_PAGEABLE_MAX_PAGE_SIZE:100}
+        one-indexed-parameters: ${SPRING_DATA_WEB_PAGEABLE_ONE_INDEXED_PARAMETERS:false}
+
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+# Custom Redis configurations and security
+security:
+  redis:
+    host: ${SECURITY_REDIS_HOST:localhost}
+    port: ${SECURITY_REDIS_PORT:6380}
+    password: ${SECURITY_REDIS_PASSWORD:}
+    # Deliberately the same order of magnitude as cache-aside, not shorter: the
+    # security instance is used fail-closed (step-up token blacklist/single-use
+    # checks), so a too-aggressive timeout would convert transient Redis latency
+    # into incorrectly rejected legitimate step-up attempts.
+    timeout-ms: ${SECURITY_REDIS_TIMEOUT_MS:2000}
+    pool:
+      max-total: ${SECURITY_REDIS_POOL_MAX_TOTAL:16}
+      max-idle: ${SECURITY_REDIS_POOL_MAX_IDLE:8}
+      min-idle: ${SECURITY_REDIS_POOL_MIN_IDLE:2}
+  jwt:
+    secret: ${JWT_SECRET:}
+    expiration-seconds: ${JWT_EXPIRATION:900}
+    refresh-expiration-seconds: ${JWT_REFRESH_EXPIRATION:604800}
+    step-up-session-max-seconds: ${JWT_STEP_UP_SESSION_MAX:900}
+  rate-limiting:
+    redis:
+      host: ${RATE_LIMIT_REDIS_HOST:localhost}
+      port: ${RATE_LIMIT_REDIS_PORT:6381}
+      password: ${RATE_LIMIT_REDIS_PASSWORD:}
+      # Shorter than the other two instances on purpose: RateLimiterService.isAllowed
+      # fails OPEN (allows the request) on any Redis error, specifically so a slow or
+      # unreachable rate-limit Redis never stalls every incoming request. A short
+      # timeout here just makes that fail-open trigger faster, with no security
+      # downside — unlike the cache/security instances, there's nothing to protect
+      # by waiting longer.
+      timeout-ms: ${RATE_LIMIT_REDIS_TIMEOUT_MS:500}
+      pool:
+        max-total: ${RATE_LIMIT_REDIS_POOL_MAX_TOTAL:16}
+        max-idle: ${RATE_LIMIT_REDIS_POOL_MAX_IDLE:8}
+        min-idle: ${RATE_LIMIT_REDIS_POOL_MIN_IDLE:2}
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    auth-limit: ${RATE_LIMIT_AUTH:5}
+    mfa-limit: ${RATE_LIMIT_MFA:5}
+    upload-limit: ${RATE_LIMIT_UPLOAD:10}
+    link-limit: ${RATE_LIMIT_LINK:30}
+    general-limit: ${RATE_LIMIT_GENERAL:100}
+    link-global-limit: ${RATE_LIMIT_LINK_GLOBAL:100}
+  password:
+    breach-check:
+      enabled: ${PASSWORD_BREACH_CHECK_ENABLED:true}
+      timeout-ms: ${PASSWORD_BREACH_CHECK_TIMEOUT_MS:3000}
+
+# ClamAV Configuration
+clamav:
+  host: ${CLAMAV_HOST:localhost}
+  port: ${CLAMAV_PORT:3310}
+  timeout-ms: 10000
+  max-concurrent-scans: ${CLAMAV_MAX_CONCURRENT_SCANS:8}
+  concurrency-timeout-seconds: ${CLAMAV_CONCURRENCY_TIMEOUT_SECONDS:30}
+
+# File Storage Configuration
+storage:
+  provider: ${STORAGE_PROVIDER:LOCAL} # LOCAL or MINIO
+  max-concurrent-decrypt-downloads: ${STORAGE_MAX_CONCURRENT_DECRYPT_DOWNLOADS:20}
+  decrypt-acquire-timeout-seconds: ${STORAGE_DECRYPT_ACQUIRE_TIMEOUT_SECONDS:10}
+  local:
+    directory: ${STORAGE_LOCAL_DIRECTORY:./uploads}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+    bucket-name: ${MINIO_BUCKET_NAME:cloudshare-bucket}
+
+# Cryptography
+crypto:
+  master-kek: ${CRYPTO_MASTER_KEK:}
+  kek:
+    allow-raw-passphrase: ${CRYPTO_KEK_ALLOW_RAW_PASSPHRASE:false}
+
+# Scheduler Configurations
+app:
+  scheduler:
+    file-purge:
+      cron: "${SCHEDULER_FILE_PURGE_CRON:0 0 2 * * ?}" # 2:00 AM UTC daily
+    link-cleanup:
+      cron: "${SCHEDULER_LINK_CLEANUP_CRON:0 0 3 * * ?}" # 3:00 AM UTC daily
+    audit-partition:
+      cron: "${SCHEDULER_AUDIT_PARTITION_CRON:0 0 4 * * ?}" # 4:00 AM UTC daily
+      lookahead-months: ${SCHEDULER_AUDIT_PARTITION_LOOKAHEAD_MONTHS:3}
+      # v3.1.0: retention hardening. 6 months of hot partitions before a partition
+      # is eligible for retirement - archive-enabled defaults to true regardless,
+      # since archiving is what actually makes any retention window safe, not the
+      # duration alone; see AuditPartitionScheduler#retirePartition.
+      retention-months: ${SCHEDULER_AUDIT_PARTITION_RETENTION_MONTHS:6}
+      archive-enabled: ${SCHEDULER_AUDIT_PARTITION_ARCHIVE_ENABLED:true}
+      archive-path-prefix: "${SCHEDULER_AUDIT_PARTITION_ARCHIVE_PATH_PREFIX:audit-archive}"
+
+logging:
+  level:
+    org.springframework.security: INFO
+    org.flywaydb: INFO
+    # DEBUG is intentionally NOT the base/default level for com.cloudshare: several
+    # service classes log identifiers and correlation data at DEBUG, and DEBUG-level
+    # logging should be an explicit, reviewed opt-in per environment (e.g. via
+    # application-dev.yml), not the value shipped for every environment including
+    # production.
+    com.cloudshare: INFO
+    org.springframework.data.repository.config: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true # Exposes liveness and readiness endpoints separately
+  metrics:
+    tags:
+      application: ${spring.application.name}

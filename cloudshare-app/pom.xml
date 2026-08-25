@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath /> <!-- lookup parent from repository -->
+    </parent>
+
+    <groupId>com.cloudshare</groupId>
+    <artifactId>cloudshare</artifactId>
+    <version>3.1.0</version>
+    <name>cloudshare</name>
+    <description>Secure File Sharing Web Application</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <jjwt.version>0.13.0</jjwt.version>
+        <netty.version>4.2.16.Final</netty.version>
+        <postgresql.version>42.7.12</postgresql.version>
+        <bouncycastle.version>1.85.2</bouncycastle.version>
+        <!--
+            v3.0.0 follow-up, round 1: removed <tomcat.version>10.1.57</tomcat.version>.
+            It was reintroduced by the Dependabot spring-boot-starter-parent PR (which
+            only touches the parent version, not unrelated property overrides) and
+            wasn't caught by the manual Boot-4.1 compile-fix pass, because a stale
+            container-version override doesn't produce a compile error - it's a
+            runtime/binary-compatibility risk. Tomcat 10.1.x implements Servlet 6.0;
+            Boot 4.1 requires the Servlet 6.1 / Jakarta EE 11 baseline. Removing it let
+            the parent BOM manage Tomcat, which resolved to 11.0.22.
+
+            v3.0.0 follow-up, round 2: the new security-scans job (OWASP dependency-check)
+            caught real CVEs against that 11.0.22 default - CVE-2026-53434, -55276,
+            -59083, -59084, -53404 (CVSS 7.3-9.1 per NVD; Apache's own security-11.html
+            rates all five "Low" - a known NVD-vs-vendor scoring gap, not cause to
+            distrust the finding) - within the same day the override was removed. Pinned
+            forward to 11.0.24, which fixes all five, staying within the 11.0.x line as
+            planned rather than reverting to 10.1.x.
+        -->
+        <tomcat.version>11.0.24</tomcat.version>
+        <log4j2.version>2.26.1</log4j2.version>
+        <kotlin.version>2.0.21</kotlin.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Pin Jackson 3.x dependencies to a secure version to resolve CVE-2026-29062,
+            CVE-2026-54512, and CVE-2026-54513 -->
+            <dependency>
+                <groupId>tools.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>3.2.2</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--
+                v3.0.0 follow-up: Boot 4.1's default-managed classic jackson-databind
+                (2.21.4, pulled in transitively via jjwt-jackson - the app's own code
+                uses tools.jackson/Jackson 3 exclusively since the Boot 4.1 compile-fix
+                pass) is affected by CVE-2026-54515 (Medium, CVSS 5.3-6.9): case-insensitive
+                deserialization can bypass a per-property @JsonIgnoreProperties exclusion.
+                Below the security-scans CVSS>=7 gate so it didn't fail the build, but real
+                and cheaply fixed - pinned to latest stable (2.22.1) rather than the bare
+                minimum fix version (2.21.5), matching how tika-core/Tomcat overrides above
+                are pinned. JJWT's own claim (de)serialization doesn't use
+                @JsonFormat(ACCEPT_CASE_INSENSITIVE_PROPERTIES), so exploitability here was
+                already low, but no reason to leave it unpatched given the fix is free.
+            -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>2.22.2</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Spring Boot Starters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- Required for LettucePoolingClientConfiguration; spring-boot-starter-data-redis
+             does not pull this in transitively since connection pooling is opt-in. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Database & Migrations -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>9.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- JSON Web Token (JJWT) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Apache Tika for MIME check -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <!-- CVE-2025-66516 (critical XXE, CVSS 10.0/8.4): affects tika-core 1.13-3.2.1,
+                 exploitable via a crafted XFA structure embedded in an uploaded PDF, processed
+                 by this service's magic-byte MIME detection (FileService#uploadFile). Fixed in
+                 tika-core >=3.2.2; pinned to the latest stable release. -->
+            <version>3.3.2</version>
+        </dependency>
+
+        <!-- MinIO Client for S3 storage -->
+        <!-- CVE-2025-59952 (GHSA-h7rh-xfpj-hpcm, info disclosure): affects minio-java <8.6.0.
+             The XML serializer substituted ${...} references in XML tag values with system
+             property / env var values; a malicious or compromised S3-compatible endpoint could
+             use this to exfiltrate JVM system properties or environment variables (credentials,
+             paths) through this client's response parsing. Fixed in 8.6.0.
+             v3.0.0 follow-up: bumped further to 9.0.3 via Dependabot - this WAS the major-line
+             bump previously deferred as a future initiative (see CHANGELOG history); it landed
+             ahead of that plan. One compile break was fixed (int -> long literal for
+             PutObjectArgs#stream, commit 9a051fa); the wider 9.x behavioral surface - including
+             whether this CVE's fix still holds the same way - has not had a full audit or
+             regression pass yet. Treat as unverified, not just "compiles now", until that
+             happens. -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>9.0.3</version>
+        </dependency>
+        <!-- Originally pinned against minio-java 8.6.0's transitive okhttp default (5.1.0),
+             which shipped split JVM/Android artifacts that broke compilation (upstream
+             minio/minio-java#1670). minio-java is now 9.0.3 (bumped via Dependabot,
+             v3.0.0 follow-up) - this override compiles fine against it, but whether it's
+             still NECESSARY (i.e. whether 9.0.3's own default okhttp still has the same
+             problem) hasn't been re-verified. Left in place as the known-safe pin rather
+             than risk removing it without that verification. -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+            <version>5.5.0</version>
+        </dependency>
+        <!-- Explicit Bouncy Castle override to fix CVE-2025-14813 (critical GOST block count
+        bypass)
+             in MinIO transitive dependency graph. Pinned to the latest stable release. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>${bouncycastle.version}</version>
+        </dependency>
+
+        <!-- TOTP / MFA library -->
+        <dependency>
+            <groupId>dev.samstevens.totp</groupId>
+            <artifactId>totp</artifactId>
+            <version>1.7.1</version>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.gatling.highcharts</groupId>
+            <artifactId>gatling-charts-highcharts</artifactId>
+            <version>3.15.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!--
+                        Explicit rather than relying on the parent POM's default: this is
+                        now depended on to recover real parameter names (e.g. "limit") in
+                        HandlerMethodValidationException error responses (see
+                        AdminController / GlobalExceptionHandler), instead of falling back
+                        to synthetic names like "arg0".
+                    -->
+                    <parameters>true</parameters>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!--
+                    v2.1.0: added a jacoco:check gate bound to verify, on top of the
+                    report-only setup shipped in v1.3.0.
+
+                    v2.2.0: confirmed against a real measured baseline — actual instruction
+                    coverage is 69%. The 60% minimum below is intentionally kept below that
+                    baseline as a working buffer, not set at the measured ceiling, so routine
+                    coverage fluctuation doesn't fail `verify` on unrelated PRs.
+                -->
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.15</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <!-- Confirmed buffer below the measured 69% baseline;
+                                            see comment above. -->
+                                            <minimum>0.60</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <!--
+                v2.4.0: OWASP dependency-check SCA scan. Deliberately NOT bound to the
+                default build/verify lifecycle — the NVD database sync it performs is slow
+                and network-dependent, so every local `mvn verify` shouldn't pay that cost.
+                Activated explicitly in CI via `-Psecurity-scan` (see
+                .github/workflows/security-scans.yml). Requires an NVD_API_KEY secret;
+                without one the NVD update falls back to a heavily rate-limited public
+                endpoint that can take hours per run.
+            -->
+            <id>security-scan</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>13.0.0</version>
+                        <configuration>
+                            <nvdApiKeyEnvironmentVariable>NVD_API_KEY</nvdApiKeyEnvironmentVariable>
+                            <formats>
+                                <format>HTML</format>
+                                <format>JSON</format>
+                            </formats>
+                            <!--
+                                CVSS 7.0 = start of the HIGH band. Matches the intent of the
+                                existing "critical/high" language in SECURITY.md and the
+                                CVE-2025-59952 / CVE-2025-66516 fixes already shipped in
+                                v2.2.0/v2.3.0 — this profile is meant to catch the next one
+                                of those automatically, not just document it after the fact.
+                            -->
+                            <failBuildOnCVSS>7</failBuildOnCVSS>
+                            <suppressionFiles>
+                                <suppressionFile>.owasp/suppressions.xml</suppressionFile>
+                            </suppressionFiles>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>performance</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>io.gatling</groupId>
+                        <artifactId>gatling-maven-plugin</artifactId>
+                        <version>4.21.10</version>
+                        <executions>
+                            <execution>
+                                <phase>integration-test</phase>
+                                <goals>
+                                    <goal>test</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <simulationClass>com.cloudshare.performance.CloudShareLoadTest</simulationClass>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

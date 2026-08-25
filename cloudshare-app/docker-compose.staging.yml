@@ -1,0 +1,64 @@
+services:
+  # Nginx Gateway & Static Asset Router
+  gateway:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # Spring Boot Stateless App
+  app:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+  # PostgreSQL Relational Metadata Database
+  db:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
+          cpus: '0.5'
+          memory: 1024M
+
+  # Redis Cache-Aside Instance
+  cache-aside:
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # Redis Security Instance (Blacklists, Rate Limiting)
+  cache-security:
+    command: redis-server --maxmemory 512mb --maxmemory-policy noeviction
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # ClamAV Virus Scanner Daemon
+  clamav:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+
+  # MinIO S3-Compatible Object Storage
+  storage:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
