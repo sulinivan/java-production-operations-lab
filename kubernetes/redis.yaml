@@ -1,0 +1,129 @@
+# Три инстанса Redis — зависимости приложения (ADR-002):
+#   cache-aside   : кэш, потеря безопасна (allkeys-lru)
+#   security      : fail-closed состояние (blacklist токенов, step-up) — недоступность
+#                   ломает login, поэтому noeviction и самый большой лимит
+#   rate-limit    : fail-open счётчики, короткие окна, минимальный размер
+# Без PVC: содержимое восстановимо на уровне приложения (re-login), ADR-003.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-cache
+  namespace: cloudshare
+  labels: { app: redis-cache }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis-cache }
+  template:
+    metadata:
+      labels: { app: redis-cache }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cloudshare-app, key: redis-cache-password }
+          ports: [{ containerPort: 6379 }]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 320Mi }
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cache
+  namespace: cloudshare
+spec:
+  selector:
+    app: redis-cache
+  ports: [{ port: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-security
+  namespace: cloudshare
+  labels: { app: redis-security }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis-security }
+  template:
+    metadata:
+      labels: { app: redis-security }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # noeviction: вытеснение записей blacklist/security-состояния недопустимо
+          args: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cloudshare-app, key: redis-security-password }
+          ports: [{ containerPort: 6379 }]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 320Mi }
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-security
+  namespace: cloudshare
+spec:
+  selector:
+    app: redis-security
+  ports: [{ port: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-ratelimit
+  namespace: cloudshare
+  labels: { app: redis-ratelimit }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis-ratelimit }
+  template:
+    metadata:
+      labels: { app: redis-ratelimit }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cloudshare-app, key: redis-ratelimit-password }
+          ports: [{ containerPort: 6379 }]
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 160Mi }
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-ratelimit
+  namespace: cloudshare
+spec:
+  selector:
+    app: redis-ratelimit
+  ports: [{ port: 6379 }]

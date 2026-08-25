@@ -23,8 +23,12 @@
     - { name: fs.inotify.max_user_watches, value: "524288" }
     - { name: fs.inotify.max_user_instances, value: "512" }
 
-- name: Create lab directory
+- name: Create lab directory owned by the admin user
+  # Владелец — ansible_user: playbook cluster.yml выполняет kubectl/kind без
+  # sudo (чтобы kubeconfig остался в домашнем каталоге пользователя)
   ansible.builtin.file:
     path: /opt/lab
     state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: "0755"

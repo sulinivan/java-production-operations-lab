@@ -40,3 +40,11 @@
     name: docker
     enabled: true
     state: started
+
+# Группа применяется при следующей SSH-сессии; kind/kubectl запускаются
+# из playbook'а cluster.yml отдельным вызовом без become.
+- name: Allow VM admin user to use docker without sudo
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true

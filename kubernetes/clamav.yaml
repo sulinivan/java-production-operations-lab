@@ -1,0 +1,69 @@
+# ClamAV — сканирование загружаемых файлов (ADR-002).
+# Signature DB (~200MB+) кэшируется в PVC: без него каждый рестарт pod'а
+# тянет freshclam заново несколько минут.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clamav
+  namespace: cloudshare
+  labels: { app: clamav }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: clamav }
+  template:
+    metadata:
+      labels: { app: clamav }
+    spec:
+      containers:
+        - name: clamav
+          # Alpine-варианты clamav amd64-only; debian-теги multiarch (arm64)
+          image: clamav/clamav:1.5-debian
+          ports: [{ containerPort: 3310 }]
+          volumeMounts:
+            - name: signatures
+              mountPath: /var/lib/clamav
+          resources:
+            # Свежая загрузка сигнатур кратковременно занимает ~1.5GB RAM
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { cpu: "1", memory: 2Gi }
+          startupProbe:
+            # Первый старт: freshclam + загрузка базы в clamd — до ~10 минут
+            exec:
+              command: ["/usr/local/bin/clamdcheck.sh"]
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/clamdcheck.sh"]
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: signatures
+          persistentVolumeClaim:
+            claimName: clamav-signatures
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clamav-signatures
+  namespace: cloudshare
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clamav
+  namespace: cloudshare
+spec:
+  selector:
+    app: clamav
+  ports:
+    - port: 3310
+      targetPort: 3310

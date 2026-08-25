@@ -1,0 +1,79 @@
+---
+# Синхронизирует конфигурацию кластера и манифесты в VM, создаёт kind-кластер,
+# применяет secrets и platform dependencies. Идемпотентен: существующий
+# кластер не пересоздаётся, секреты обновляются через dry-run|apply.
+- name: Sync kind config into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../kind/"
+    dest: /opt/lab/kind/
+
+- name: Sync kubernetes manifests into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../kubernetes/"
+    dest: /opt/lab/kubernetes/
+
+- name: Sync operational scripts into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../scripts/"
+    dest: /opt/lab/scripts/
+    mode: preserve
+
+- name: Check for locally generated secrets file
+  ansible.builtin.set_fact:
+    env_lab_present: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../.env.lab', errors='ignore') | length > 0 }}"
+
+- name: Sync .env.lab (chmod 600, gitignored)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../.env.lab"
+    dest: /opt/lab/.env.lab
+    mode: "0600"
+  when: env_lab_present
+
+- name: List existing kind clusters
+  ansible.builtin.command: kind get clusters
+  register: kind_clusters
+  changed_when: false
+
+- name: Create kind cluster if absent
+  ansible.builtin.command:
+    cmd: kind create cluster --name lab --config /opt/lab/kind/cluster.yaml --wait 180s
+  when: "'lab' not in kind_clusters.stdout_lines"
+
+- name: Verify cluster access
+  ansible.builtin.command: kubectl cluster-info --request-timeout=10s
+  changed_when: false
+
+- name: Apply namespace
+  ansible.builtin.command: kubectl apply -f /opt/lab/kubernetes/namespace.yaml
+
+- name: Apply platform secrets
+  ansible.builtin.command: bash /opt/lab/scripts/apply-secrets.sh
+  when: env_lab_present
+
+- name: Apply stateful dependencies
+  ansible.builtin.command: kubectl apply -f /opt/lab/kubernetes/postgres.yaml -f /opt/lab/kubernetes/minio.yaml -f /opt/lab/kubernetes/redis.yaml -f /opt/lab/kubernetes/clamav.yaml
+
+- name: Wait for platform rollouts
+  ansible.builtin.command: kubectl -n cloudshare rollout status --timeout=600s deploy/{{ item }}
+  loop:
+    - postgres
+    - minio
+    - redis-cache
+    - redis-security
+    - redis-ratelimit
+  changed_when: false
+
+# ClamAV отдельно: первый freshclam может идти ~10 минут, не блокируем общий wait
+- name: Trigger ClamAV rollout check in background-friendly way
+  ansible.builtin.command: kubectl -n cloudshare rollout status --timeout=60s deploy/clamav
+  failed_when: false
+  changed_when: false
+
+- name: Recreate bucket init job (Job не переприменяется с тем же именем)
+  ansible.builtin.command: kubectl -n cloudshare delete job minio-bucket-init --ignore-not-found
+
+- name: Apply bucket init job
+  ansible.builtin.command: kubectl apply -f /opt/lab/kubernetes/minio-bucket-init.yaml
+
+- name: Wait for buckets to be created
+  ansible.builtin.command: kubectl -n cloudshare wait --for=condition=complete --timeout=180s job/minio-bucket-init

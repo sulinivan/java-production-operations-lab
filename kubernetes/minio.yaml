@@ -1,0 +1,82 @@
+# MinIO — S3-compatible object storage (README §20).
+# Один инстанс, три bucket'а с раздельной ответственностью:
+# documents (содержимое файлов) / postgres-backups / loki (бэкенд логов).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: cloudshare
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--address", ":9000"]
+          ports:
+            - containerPort: 9000
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: { name: cloudshare-minio, key: access-key }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cloudshare-minio, key: secret-key }
+            - name: MINIO_BROWSER
+              value: "off"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1500Mi }
+          startupProbe:
+            exec:
+              command: ["mc", "ready", "local"]
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command: ["mc", "ready", "local"]
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: cloudshare
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: cloudshare
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - port: 9000
+      targetPort: 9000
