@@ -1,0 +1,6 @@
+---
+# Требует: playbooks/cluster.yml выполнен хотя бы раз (кластер и зависимости).
+- name: Deploy CloudShare via Helm and verify with smoke test
+  hosts: lab
+  roles:
+    - app

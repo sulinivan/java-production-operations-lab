@@ -1,7 +1,10 @@
 # ==========================================
 # Stage 1: Build the Application
+# ADR-005: alpine-варианты temurin/maven публикуются только для linux/amd64;
+# лаборатория работает на arm64 (Apple M1 -> Lima VM aarch64), поэтому
+# debian/jammy multiarch-базы. Единственное изменение приложения в проекте.
 # ==========================================
-FROM maven:3.9.6-eclipse-temurin-17-alpine AS builder
+FROM maven:3.9.6-eclipse-temurin-17 AS builder
 WORKDIR /build
 
 # Copy Maven descriptor and resolve dependencies (enables layer caching)
@@ -21,13 +24,15 @@ RUN mvn test -B
 # ==========================================
 # Stage 3: Production Runtime
 # ==========================================
-FROM eclipse-temurin:17-jre-alpine AS runner
+FROM eclipse-temurin:17-jre-jammy AS runner
 WORKDIR /app
 
-# Install security patches and create a non-root system group & user
-RUN apk update && apk upgrade && \
-    addgroup -g 10001 -S spring && \
-    adduser -u 10001 -S spring -G spring
+# Install security patches and create a non-root system group & user.
+# wget нужен HEALTHCHECK ниже (в jammy его нет, в alpine был из busybox)
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup -gid 10001 spring \
+    && adduser --uid 10001 --ingroup spring --system --shell /bin/false spring
 
 # Ensure test stage runs successfully before creating runner image
 COPY --from=tester /build/pom.xml /tmp/dummy_test_check
@@ -44,8 +49,8 @@ EXPOSE 8080
 
 # Container-level health check. Hits the Actuator liveness probe (exposed via
 # management.endpoint.health.probes.enabled=true) and is permitted without
-# authentication in SecurityConfig (/actuator/health/**). Uses wget since the
-# eclipse-temurin:17-jre-alpine base includes it via busybox; no curl is present.
+# authentication in SecurityConfig (/actuator/health/**). Uses wget (installed
+# in the runner stage for this purpose).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD wget -qO- http://localhost:8080/actuator/health/liveness || exit 1
 

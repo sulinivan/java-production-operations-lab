@@ -146,3 +146,42 @@ Docker tag / Helm revision.
 Helm одним значением (`image.tag`).
 
 **Consequences.** Полная прослеживаемость release: commit → tag → image → helm revision.
+
+---
+
+## ADR-009: Helm chart не создаёт credential secrets — ссылается на platform Secrets
+
+- **Дата:** 2026-08-25
+- **Статус:** принято
+
+**Context.** README §40 показывает `secret.yaml` среди шаблонов chart. Если чарт сам создаёт
+секреты из values, то креды протекают в release-историю (`helm get values --all`) и в
+CI-переменные каждого деплоя.
+
+**Decision.** Chart `cloudshare` ссылается на Kubernetes Secrets `cloudshare-db`,
+`cloudshare-minio`, `cloudshare-app`, созданные вне Helm (scripts/apply-secrets.sh, фаза 4).
+Шаблон secret.yaml отсутствует намеренно. Ingress-шаблона тоже нет: edge — nginx на хосте VM
+(§14), ingress controller без эксплуатационной задачи не ставится (§49).
+
+**Consequences.** `helm rollback`/переустановка релиза никогда не трогает credentials;
+ротация секрета — platform-операция, не релизная.
+
+---
+
+## ADR-010: Удаление файлов в приложении — soft-delete; объект MinIO убирает purge-шедулер
+
+- **Дата:** 2026-08-25
+- **Статус:** принято
+
+**Context.** Smoke-тест фазы 5 поймал расхождение с наивной моделью §22: после
+`DELETE /api/v1/files/{id}` (HTTP 204) metadata исчезает сразу, но объект в MinIO остаётся.
+Это документированное поведение приложения: soft-delete + `FilePurgeScheduler`
+(cron `app.scheduler.file-purge.cron`, по умолчанию 02:00 UTC ежедневно) выполняет
+`purgeSoftDeletedFile` — удаляет запись и S3-объект.
+
+**Decision.** Smoke-тест проверяет строго metadata-сторону (204, отсутствие в list, 404 на
+download) и фиксирует состояние объекта информационно. Полный цикл delete→purge проверяется
+отдельным ops-упражнением (временный fast cron через helm values) в фазе 9.
+
+**Consequences.** Сценарий §22 превращается в более богатый runbook: «удаление» и
+«очистка» — разные точки отказа (объект мог не удалиться из MinIO при живой metadata-purge).

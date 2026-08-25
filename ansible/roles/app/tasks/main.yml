@@ -1,0 +1,55 @@
+---
+# Ручной deployment-путь лаборатории (автоматизация CI/CD — фаза 8).
+# Шаги соответствуют README §47: source -> docker image -> helm -> k8s -> smoke.
+# Образ собирается внутри VM; kind load кладёт его в ноду кластера.
+# ВНИМАНИЕ: это interim-путь проверки chart'а. Финальный lifecycle доставки —
+# через Docker Hub + self-hosted runner (README §11), см. фазу 8.
+- name: Sync application source into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../cloudshare-app/"
+    dest: /opt/lab/src/cloudshare-app/
+
+- name: Sync helm chart into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../helm/cloudshare/"
+    dest: /opt/lab/helm/cloudshare/
+
+- name: Sync operational scripts into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../scripts/"
+    dest: /opt/lab/scripts/
+    mode: preserve
+
+- name: Check whether image already built in VM docker
+  ansible.builtin.command:
+    cmd: docker image inspect sulinivan/cloudshare:{{ app_image_tag }}
+  register: image_present
+  failed_when: false
+  changed_when: false
+
+- name: Build application image (mvn test включены в Dockerfile tester stage)
+  ansible.builtin.command:
+    cmd: docker build -t sulinivan/cloudshare:{{ app_image_tag }} /opt/lab/src/cloudshare-app
+  when: (rebuild | bool) or image_present.rc != 0
+
+- name: Load image into kind node
+  ansible.builtin.command:
+    cmd: kind load docker-image sulinivan/cloudshare:{{ app_image_tag }} --name lab
+
+- name: "Helm upgrade --install (--atomic откатывает неудачный rollout)"
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install {{ helm_release_name }} /opt/lab/helm/cloudshare
+      -n cloudshare
+      --set image.tag={{ app_image_tag }}
+      --atomic --timeout {{ helm_timeout }}
+
+- name: Wait for rollout
+  ansible.builtin.command:
+    cmd: kubectl -n cloudshare rollout status --timeout={{ helm_timeout }} deploy/{{ helm_release_name }}
+  changed_when: false
+
+- name: Run smoke test (README §38)
+  ansible.builtin.command:
+    cmd: bash /opt/lab/scripts/smoke-test.sh
+  changed_when: false
