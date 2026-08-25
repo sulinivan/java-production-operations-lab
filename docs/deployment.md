@@ -66,3 +66,5 @@ Backup без проверки восстановления считается �
 ```bash
 CONFIRM=yes scripts/destroy.sh     # удаляет Lima VM со всеми данными
 ```
+
+DoD verification pass — см. docs/dod-checklist.md.
