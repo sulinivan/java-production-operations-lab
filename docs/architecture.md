@@ -25,6 +25,17 @@
 | Prometheus stack | monitoring | метрики + алерты |
 | Loki + Alloy | monitoring | логи stdout → Loki → MinIO |
 
+## Установленные версии observability (фаза 6)
+
+| Release | Chart | App |
+|---|---|---|
+| prometheus | kube-prometheus-stack-88.5.4 | v0.93.1 |
+| loki | loki-7.3.0 (SingleBinary, S3→MinIO `loki`) | 3.6.12 |
+| alloy | alloy-1.12.0 (DaemonSet, /var/log/pods → Loki) | v1.19.0 |
+| postgres-exporter | plain manifest (v0.15.0) | — |
+
+Версии резолвятся при установке; обновление стека = пересоздание VM.
+
 ## Потоки
 
 - TODO: traffic flow (client → nginx → svc → pod) — фаза 4

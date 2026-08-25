@@ -34,3 +34,11 @@ apply_secret cloudshare-app \
   --from-literal=redis-cache-password="$REDIS_CACHE_PASSWORD" \
   --from-literal=redis-security-password="$REDIS_SECURITY_PASSWORD" \
   --from-literal=redis-ratelimit-password="$REDIS_RATELIMIT_PASSWORD"
+
+# DSN для postgres-exporter (фаза 6). Роль pg_monitor выдаётся ролью monitoring.
+apply_secret cloudshare-pg-exporter \
+  --from-literal=data-source-name="postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@cloudshare-postgres:5432/cloudshare?sslmode=disable"
+
+if [[ -n "${GRAFANA_ADMIN_PASSWORD:-}" ]]; then
+  echo "GRAFANA_ADMIN_PASSWORD: present (используется при установке kube-prometheus-stack)"
+fi

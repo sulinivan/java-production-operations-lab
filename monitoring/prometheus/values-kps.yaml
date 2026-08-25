@@ -1,0 +1,82 @@
+# kube-prometheus-stack: Prometheus + Operator + Alertmanager + Grafana +
+# kube-state-metrics + node-exporter. Namespace cloudshare — README §41.
+#
+# Селекторы ниже критичны: без NilUsesHelmValues=false оператор подхватывает
+# только ServiceMonitor/PrometheusRule с собственным release-лейблом,
+# и наш servicemonitor приложения остался бы невидимым.
+fullnameOverride: prometheus-stack
+
+# kind запускает control-plane статик-подами без отдельных service endpoints:
+# скрейпить и алертить по ним нечего — отключаем целиком, иначе вечные
+# KubeControllerManagerDown / KubeSchedulerDown / etcd alerts.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  create: true
+
+grafana:
+  fullnameOverride: grafana
+  service:
+    type: NodePort
+    # Согласовано с kind/cluster.yaml (host 3000 -> node 30300)
+    # и nginx vhost grafana.lab.local -> 127.0.0.1:3000
+    nodePort: 30300
+  adminUser: admin
+  # Пароль передаётся при установке: --set-string grafana.adminPassword=...
+  adminPassword: ""
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      isDefault: false
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 3d
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1500Mi }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: 250m, memory: 256Mi }
+  config:
+    route:
+      receiver: 'null'
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    receivers:
+      - name: 'null'
+    # Нотификаций в лаборатории нет: алерты смотрим в UI Alertmanager/Grafana.
+    # Канал доставки добавляется, когда появляется эксплуатационная задача.
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 256Mi }
+
+nodeExporter:
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }

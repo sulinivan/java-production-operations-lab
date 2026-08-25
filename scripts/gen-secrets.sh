@@ -8,10 +8,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 F="$ROOT/.env.lab"
 
 if [[ -f "$F" ]]; then
-  echo "already exists, not regenerated: $F"
-  exit 0
-fi
-
+  # Файл существует: НЕ перегенерируем, но дополняем ключами новых фаз ниже
+  echo "exists, keeping values: $F"
+else
 b64() { openssl rand -base64 "$1" | tr -d '\n'; }
 hex() { openssl rand -hex "$1"; }
 
@@ -26,6 +25,15 @@ REDIS_CACHE_PASSWORD=$(hex 16)
 REDIS_SECURITY_PASSWORD=$(hex 16)
 REDIS_RATELIMIT_PASSWORD=$(hex 16)
 EOF
+
+fi
+
+# Ключи, добавленные в более поздних фазах: дописываем только отсутствующие,
+# чтобы существующие установки не теряли уже выданные значения.
+append_if_absent() {
+  grep -q "^$1=" "$F" || echo "$1=$2" >> "$F"
+}
+append_if_absent GRAFANA_ADMIN_PASSWORD "$(openssl rand -hex 12)"
 
 chmod 600 "$F"
 echo "written: $F (chmod 600, gitignored)"

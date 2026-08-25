@@ -1,0 +1,6 @@
+---
+# Требует: playbooks/cluster.yml и playbooks/app.yml выполнены хотя бы раз.
+- name: Install observability stack
+  hosts: lab
+  roles:
+    - monitoring

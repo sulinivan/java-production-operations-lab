@@ -1,0 +1,72 @@
+# Alert rules — README §25: application unavailable, high HTTP error rate,
+# high latency, pod restart, high memory usage, database unavailable.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cloudshare-alerts
+  namespace: cloudshare
+  labels:
+    app.kubernetes.io/part-of: java-production-operations-lab
+spec:
+  groups:
+    - name: cloudshare.application
+      rules:
+        - alert: CloudshareAppUnavailable
+          expr: up{namespace="cloudshare", service="cloudshare"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CloudShare приложение недоступно"
+            description: "Prometheus не может скрейпить {{ $labels.pod }} дольше 2 минут."
+
+        - alert: HighHttpErrorRate
+          expr: |
+            sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+              / sum(rate(http_server_requests_seconds_count[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "HTTP 5xx > 5% за 5 минут"
+            description: "Доля ошибок сервера: {{ $value | humanizePercentage }}. Проверить логи в Loki."
+
+        - alert: HighLatencyP95
+          expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le)) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 latency выше 2s"
+            description: "{{ $value | humanizeDuration }} — проверить нагрузку и зависимости."
+
+        - alert: PodRestartStorm
+          expr: increase(kube_pod_container_status_restarts_total{namespace="cloudshare", container!="", container!="POD"}[30m]) > 3
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.pod }} перезапускался более 3 раз за 30 минут"
+            description: "Проверить OOMKilled/crash причины через kubectl describe."
+
+        - alert: ContainerMemoryNearLimit
+          expr: |
+            container_memory_working_set_bytes{namespace="cloudshare", container!="", container!="POD"}
+              / on(namespace,pod,container)
+            kube_pod_container_resource_limits{namespace="cloudshare", resource="memory"}
+              > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.container }} использует >85% memory limit"
+
+    - name: cloudshare.dependencies
+      rules:
+        - alert: PostgresUnavailable
+          expr: pg_up == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PostgreSQL недоступен"
+            description: "postgres-exporter не может подключиться к базе. Runbook: docs/incidents/postgres-failure.md"
