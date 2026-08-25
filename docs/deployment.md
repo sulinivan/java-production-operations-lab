@@ -1,40 +1,68 @@
 # Deployment
 
-> Status: scaffold — заполняется в фазах 2–4, 8.
+> Заполнено в фазе 7. Все процедуры фактически выполнены и проверены.
 
 ## Предварительные требования
 
-- macOS host: terraform, ansible, limactl, gh
+- macOS host: terraform, ansible, limactl, gh (см. фазы 2–3)
 - Docker Hub аккаунт (namespace: `sulinivan`)
-- GitHub Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `GITHUB_RUNNER_TOKEN`
+- GitHub Secrets для CI/CD (фаза 8): `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
 
-## Bootstrap
+## Bootstrap с нуля
 
 ```bash
-scripts/bootstrap.sh   # TODO фаза 7: terraform apply → ansible site → kind create → platform deps
+scripts/bootstrap.sh
 ```
 
-## Модель окружения
+Оркестрирует весь конвейер README §47: terraform apply → gen-inventory →
+ansible site → gen-secrets → kind cluster + platform → app deploy + smoke →
+monitoring. Идемпотентен: повторный запуск обновляет слои, а не пересоздаёт.
 
-- TODO: developer machine / Lima VM / kind — схема и порты (§41) — фаза 3
+## Модель окружения (§41)
+
+```text
+developer machine (macOS)
+        │  terraform (guidoiaquinti/lima) + ansible over ssh
+        ▼
+Lima VM java-prod-ops-lab (ubuntu 24.04, 6cpu/12Gi/80Gi)
+        ├── docker, kind cluster 'lab', kubectl, helm
+        ├── nginx edge: api.lab.local -> :8080, grafana.lab.local -> :3000
+        └── self-hosted GitHub Actions runner
+```
+
+Порты наружу VM: 80/443 (nginx). Внутри kind: NodePort 30080 (app), 30300 (grafana).
 
 ## Версионирование (§43)
 
-- Git tag: `v1.0.0`
-- Docker tag: `1.0.0` (без `latest` для deployment)
-- Helm release revision: инкрементируется каждым `helm upgrade`
+| Понятие | Формат | Пример |
+|---|---|---|
+| Git tag | `vMAJOR.MINOR.PATCH` | `v1.0.0` |
+| Docker tag | `MAJOR.MINOR.PATCH` (без `latest`) | `1.0.0` |
+| Helm revision | инкремент каждого `helm upgrade` | `1, 2, 3` |
 
-## Процедура деплоя
+## Процедуры
 
-- TODO: ручной deploy (`scripts/deploy.sh`) — фаза 7
-- TODO: автоматический CD из GitHub Actions — фаза 8
-
-## Deployment verification (§38)
+### Ручной деплой версии
 
 ```bash
-scripts/smoke-test.sh  # health → upload → list → download → delete → проверка объекта в MinIO
+scripts/deploy.sh [tag]   # build -> kind load -> helm upgrade --atomic -> smoke
 ```
 
-## Rollback (§39)
+### Backup / Restore (README §18–19)
 
-- TODO: helm rollback процедура и критерии — фаза 9
+Выполняется в VM (`ssh -F ~/.lima/java-prod-ops-lab/ssh.config lima-java-prod-ops-lab`),
+скрипты лежат в `/opt/lab/postgres/scripts/`:
+
+```bash
+backup.sh                          # pg_dump -> gzip -> MinIO postgres-backups
+CONFIRM=yes restore.sh <file>      # drop+recreate database -> dump -> app restart
+verify-restore.sh [<email> <pass>] # §19: API работает, известный пользователь видит файлы
+```
+
+Backup без проверки восстановления считается невалидным.
+
+### Destroy
+
+```bash
+CONFIRM=yes scripts/destroy.sh     # удаляет Lima VM со всеми данными
+```

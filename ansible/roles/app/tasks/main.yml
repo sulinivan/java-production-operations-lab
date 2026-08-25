@@ -20,6 +20,12 @@
     dest: /opt/lab/scripts/
     mode: preserve
 
+- name: Sync postgres operational scripts into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../postgres/"
+    dest: /opt/lab/postgres/
+    mode: preserve
+
 - name: Check whether image already built in VM docker
   ansible.builtin.command:
     cmd: docker image inspect sulinivan/cloudshare:{{ app_image_tag }}

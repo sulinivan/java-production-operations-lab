@@ -44,8 +44,9 @@ probes:
 config:
   SPRING_DATASOURCE_URL: jdbc:postgresql://cloudshare-postgres:5432/cloudshare
   # Readiness учитывает состояние БД: БД недоступна -> pod снимается с
-  # эндпоинтов, но liveness остаётся UP и pod не рестартует (§23)
-  MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_ADDITIONALPATHS: db
+  # эндпоинтов, но liveness остаётся UP и pod не рестартует (§23).
+  # Явный include надёжнее additional-paths на Boot 4.
+  MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE: readinessState,db
   STORAGE_PROVIDER: MINIO
   MINIO_ENDPOINT: http://minio:9000
   MINIO_BUCKET_NAME: documents

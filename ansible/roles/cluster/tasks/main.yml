@@ -18,6 +18,12 @@
     dest: /opt/lab/scripts/
     mode: preserve
 
+- name: Sync postgres operational scripts into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../postgres/"
+    dest: /opt/lab/postgres/
+    mode: preserve
+
 - name: Check for locally generated secrets file
   ansible.builtin.set_fact:
     env_lab_present: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../.env.lab', errors='ignore') | length > 0 }}"
