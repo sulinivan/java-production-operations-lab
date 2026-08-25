@@ -1,0 +1,45 @@
+---
+# kind + kubectl. Версии резолвятся как latest stable в момент provisioning;
+# обновление инструментария = пересоздание VM (README §6: infrastructure
+# можно уничтожить и создать заново). Это осознанный компромисс лаборатории.
+- name: Map guest architecture to Go release arch
+  ansible.builtin.set_fact:
+    go_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+- name: Resolve latest kubectl stable version
+  ansible.builtin.command: curl -fsSL https://dl.k8s.io/release/stable.txt
+  register: kubectl_version
+  changed_when: false
+
+- name: Install kubectl
+  ansible.builtin.command:
+    cmd: >-
+      curl -fsSL -o /usr/local/bin/kubectl
+      https://dl.k8s.io/release/{{ kubectl_version.stdout }}/bin/linux/{{ go_arch }}/kubectl
+    creates: /usr/local/bin/kubectl
+
+- name: Make kubectl executable (creates= не задаёт права)
+  ansible.builtin.file:
+    path: /usr/local/bin/kubectl
+    mode: "0755"
+
+- name: Resolve latest kind version
+  ansible.builtin.shell: >
+    curl -fsSL https://api.github.com/repos/kubernetes-sigs/kind/releases/latest
+    | jq -r .tag_name
+  args:
+    executable: /bin/bash
+  register: kind_version
+  changed_when: false
+
+- name: Install kind
+  ansible.builtin.command:
+    cmd: >-
+      curl -fsSL -o /usr/local/bin/kind
+      https://kind.sigs.k8s.io/dl/{{ kind_version.stdout }}/kind-linux-{{ go_arch }}
+    creates: /usr/local/bin/kind
+
+- name: Make kind executable
+  ansible.builtin.file:
+    path: /usr/local/bin/kind
+    mode: "0755"

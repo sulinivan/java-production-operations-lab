@@ -12,6 +12,7 @@ crash.log
 
 # Ansible
 *.retry
+ansible/inventory/hosts.ini
 
 # Секреты никогда не попадают в Git (README §42).
 # Реальные значения — только в GitHub Secrets и Kubernetes Secrets.

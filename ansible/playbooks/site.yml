@@ -1,0 +1,8 @@
+---
+# Полная конфигурация deployment target: Terraform создал машину,
+# Ansible делает её пригодной для эксплуатации (README §5.2).
+- import_playbook: common.yml
+- import_playbook: docker.yml
+- import_playbook: kubernetes.yml
+- import_playbook: nginx.yml
+- import_playbook: runner.yml

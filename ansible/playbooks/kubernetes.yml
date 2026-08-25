@@ -1,0 +1,9 @@
+---
+# Kubernetes tooling на хосте VM: kind + kubectl (cluster создаётся отдельным шагом)
+# и Helm как application release layer.
+- name: Kubernetes tooling (kind, kubectl, helm)
+  hosts: lab
+  become: true
+  roles:
+    - kind
+    - helm

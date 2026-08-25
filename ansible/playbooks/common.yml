@@ -1,0 +1,6 @@
+---
+- name: Base host configuration
+  hosts: lab
+  become: true
+  roles:
+    - common

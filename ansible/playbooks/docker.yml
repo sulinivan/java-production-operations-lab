@@ -1,0 +1,6 @@
+---
+- name: Docker runtime
+  hosts: lab
+  become: true
+  roles:
+    - docker

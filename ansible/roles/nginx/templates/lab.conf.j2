@@ -1,0 +1,49 @@
+# Edge reverse proxy лаборатории (README §14).
+# Nginx НЕ заменяет Kubernetes Service: Client -> Nginx -> Service -> Pod.
+# Апстримы — host-loopback порты, которые phase 4 прокинет из kind
+# (extraPortMappings): cloudshare NodePort 30080 -> :{{ app_port }},
+# grafana NodePort 30300 -> :{{ grafana_port }}.
+
+server {
+    listen 80;
+    server_name api.lab.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ app_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # multipart upload до 100MB (лимит приложения)
+        client_max_body_size 110m;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+
+    access_log /var/log/nginx/api.lab.local.access.log;
+    error_log  /var/log/nginx/api.lab.local.error.log;
+}
+
+server {
+    listen 80;
+    server_name grafana.lab.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ grafana_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Grafana Live использует WebSocket
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+    }
+
+    access_log /var/log/nginx/grafana.lab.local.access.log;
+    error_log  /var/log/nginx/grafana.lab.local.error.log;
+}

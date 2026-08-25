@@ -1,0 +1,33 @@
+---
+# Helm — application release layer (README §13).
+- name: Map guest architecture to Go release arch
+  ansible.builtin.set_fact:
+    go_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+- name: Check whether helm is already installed
+  ansible.builtin.command: helm version --short
+  register: helm_present
+  failed_when: false
+  changed_when: false
+
+- name: Resolve latest helm version
+  ansible.builtin.shell: >
+    curl -fsSL https://api.github.com/repos/helm/helm/releases/latest
+    | jq -r .tag_name
+  args:
+    executable: /bin/bash
+  register: helm_version
+  when: helm_present.rc != 0
+  changed_when: false
+
+- name: Download and unpack helm to /usr/local/bin
+  ansible.builtin.unarchive:
+    src: "https://get.helm.sh/helm-{{ helm_version.stdout }}-linux-{{ go_arch }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+      - --wildcards
+      - "*/helm"
+    mode: "0755"
+  when: helm_present.rc != 0
