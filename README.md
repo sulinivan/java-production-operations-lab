@@ -51,8 +51,8 @@ Java microservice используется как **готовый объект 
 
 # 2. Основной workload
 
-В качестве application workload используется готовый Java/Spring Boot сервис **CloudShare**
-(secure file sharing, upstream: `Dhruv0306/cloudshare-app`, MIT; поглощён монорепо — ADR-001).
+В качестве application workload я использовал готовый Java/Spring Boot сервис **CloudShare**
+автора Dhruv Patel — https://github.com/Dhruv0306/cloudshare-app (MIT; поглощён монорепо — ADR-001).
 
 Приложение разворачивается **как есть**, со всеми своими зависимостями (ADR-002):
 
@@ -363,9 +363,9 @@ grafana.lab.local → 127.0.0.1:3000 → kind mapping :3000 → NodePort 30300 �
 
 # 15. Java Application
 
-CloudShare — главный workload проекта. Приложение не изменялось без необходимости;
-единственное изменение за весь проект — замена базового образа Dockerfile на
-multiarch (ADR-005, ~3 строки). Изучается эксплуатация, а не разработка.
+CloudShare — главный workload проекта, его автор — Dhruv Patel (https://github.com/Dhruv0306/cloudshare-app).
+Я не изменял приложение без необходимости; единственное изменение за весь проект — замена базового образа Dockerfile на
+multiarch (ADR-005, ~3 строки). Я изучал эксплуатацию готового сервиса, а не его разработку.
 
 ---
 
