@@ -1,0 +1,10 @@
+---
+# Self-hosted GitHub Actions runner.
+# Токен регистрации одноразовый и передаётся снаружи Git (README §42):
+#   ansible-playbook playbooks/runner.yml -e runner_token=XXXX
+# Без токена роль ставит бинарь, но пропускает регистрацию.
+- name: Self-hosted GitHub Actions runner
+  hosts: lab
+  become: true
+  roles:
+    - runner

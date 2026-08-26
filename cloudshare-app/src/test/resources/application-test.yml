@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:cloudshare;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: StrongTestDBPassword123!
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  data:
+    redis:
+      repositories:
+        enabled: false
+  cache:
+    type: none
+
+storage:
+  provider: LOCAL
+  local:
+    directory: target/test-uploads
+  minio:
+    access-key: testminioaccesskey
+    secret-key: testminiosecretkey
+
+security:
+  jwt:
+    secret: AValid64ByteLongDummyJWTSecretKeyForTestsThatIsAtLeast512BitsLong
+  redis:
+    require-password: false
+
+crypto:
+  master-kek: test_crypto_master_kek_32_bytes_x
+  kek:
+    allow-raw-passphrase: true
+

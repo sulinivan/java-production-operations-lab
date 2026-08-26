@@ -1,0 +1,50 @@
+---
+- name: Docker apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+
+- name: Docker GPG key (arm64 ubuntu repo)
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: "https://download.docker.com/linux/ubuntu"
+    suites: "{{ ansible_distribution_release | lower }}"
+    components: [stable]
+    signed_by: "https://download.docker.com/linux/ubuntu/gpg"
+    state: present
+    enabled: true
+
+- name: Install Docker Engine + buildx + compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Daemon configuration (log rotation, иначе json-file растёт неограниченно)
+  ansible.builtin.copy:
+    src: daemon.json
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  notify: Restart docker
+
+- name: Enable and start docker
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+# Группа применяется при следующей SSH-сессии; kind/kubectl запускаются
+# из playbook'а cluster.yml отдельным вызовом без become.
+- name: Allow VM admin user to use docker without sudo
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true

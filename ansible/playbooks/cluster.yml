@@ -1,0 +1,9 @@
+---
+# Запускается ОТДЕЛЬНО от site.yml в новой SSH-сессии: docker role добавляет
+# ansible_user в группу docker, а членство в группе действует только для
+# новых сессий. Так kind/kubectl работают от пользователя без sudo и пишут
+# kubeconfig в домашний каталог пользователя, а не root.
+- name: Provision kind cluster and platform dependencies
+  hosts: lab
+  roles:
+    - cluster

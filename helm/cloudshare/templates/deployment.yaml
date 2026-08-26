@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudshare.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloudshare.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudshare.labels" . | nindent 8 }}
+      annotations:
+        # Изменение конфигурации -> rolling restart pod'ов
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ required "image.tag обязателен (README §10: без latest)" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "cloudshare.fullname" . }}-config
+          env:
+            # --- credentials из platform Secrets (ADR-009) ---
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.dbSecretName }}, key: username }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.dbSecretName }}, key: password }
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.minioSecretName }}, key: access-key }
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.minioSecretName }}, key: secret-key }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.appSecretName }}, key: jwt-secret }
+            - name: CRYPTO_MASTER_KEK
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.appSecretName }}, key: crypto-master-kek }
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.appSecretName }}, key: redis-cache-password }
+            - name: SECURITY_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.appSecretName }}, key: redis-security-password }
+            - name: RATE_LIMIT_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.credentials.appSecretName }}, key: redis-ratelimit-password }
+          {{- with .Values.probes.startup }}
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: {{ .periodSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
+          livenessProbe:
+            # Только livenessState: отказ зависимости НЕ убивает процесс (§23)
+            httpGet: { path: {{ .Values.probes.liveness.path }}, port: http }
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            # Учитывает БД (см. config): отказ БД снимает трафик без рестарта
+            httpGet: { path: {{ .Values.probes.readiness.path }}, port: http }
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

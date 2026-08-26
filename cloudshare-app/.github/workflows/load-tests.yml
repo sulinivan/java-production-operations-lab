@@ -1,0 +1,150 @@
+name: Gatling Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target Base URL for load tests (must contain "localhost" to spin up local Docker stack, otherwise targets remote host directly)'
+        required: true
+        default: "https://localhost"
+      p95_api_ms:
+        description: "Gatling p95 API Latency SLA (ms)"
+        required: true
+        default: "200"
+      p95_stream_ms:
+        description: "Gatling p95 Streaming Latency SLA (ms)"
+        required: true
+        default: "1500"
+
+jobs:
+  load-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Create CI env file
+        if: contains(github.event.inputs.target_url, 'localhost')
+        env:
+          CI_DB_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+          CI_JWT_SECRET: ${{ secrets.CI_JWT_SECRET }}
+          CI_CRYPTO_MASTER_KEK: ${{ secrets.CI_CRYPTO_MASTER_KEK }}
+          CI_REDIS_CACHE_PASSWORD: ${{ secrets.CI_REDIS_CACHE_PASSWORD }}
+          CI_REDIS_SECURITY_PASSWORD: ${{ secrets.CI_REDIS_SECURITY_PASSWORD }}
+          CI_REDIS_RATELIMIT_PASSWORD: ${{ secrets.CI_REDIS_RATELIMIT_PASSWORD }}
+        run: |
+          # Use secrets if available, otherwise generate secure 64-byte keys dynamically
+          DB_PASSWORD="$CI_DB_PASSWORD"
+          [ -z "$DB_PASSWORD" ] && DB_PASSWORD="A1000Rocks"
+
+          JWT_SECRET="$CI_JWT_SECRET"
+          [ -z "$JWT_SECRET" ] && JWT_SECRET=$(openssl rand -hex 64)
+
+          CRYPTO_KEK="$CI_CRYPTO_MASTER_KEK"
+          [ -z "$CRYPTO_KEK" ] && CRYPTO_KEK=$(openssl rand -hex 64)
+
+          REDIS_CACHE_PW="$CI_REDIS_CACHE_PASSWORD"
+          [ -z "$REDIS_CACHE_PW" ] && REDIS_CACHE_PW=$(openssl rand -hex 32)
+
+          REDIS_SECURITY_PW="$CI_REDIS_SECURITY_PASSWORD"
+          [ -z "$REDIS_SECURITY_PW" ] && REDIS_SECURITY_PW=$(openssl rand -hex 32)
+
+          REDIS_RATELIMIT_PW="$CI_REDIS_RATELIMIT_PASSWORD"
+          [ -z "$REDIS_RATELIMIT_PW" ] && REDIS_RATELIMIT_PW=$(openssl rand -hex 32)
+
+          echo "SPRING_DATASOURCE_USERNAME=cloudshare_user" > tests/.env.ci
+          echo "SPRING_DATASOURCE_PASSWORD=$DB_PASSWORD" >> tests/.env.ci
+          echo "SPRING_DATA_REDIS_HOST=cache-aside" >> tests/.env.ci
+          echo "SPRING_DATA_REDIS_PORT=6379" >> tests/.env.ci
+          echo "REDIS_CACHE_PASSWORD=$REDIS_CACHE_PW" >> tests/.env.ci
+          echo "SECURITY_REDIS_HOST=cache-security" >> tests/.env.ci
+          echo "SECURITY_REDIS_PORT=6379" >> tests/.env.ci
+          echo "REDIS_SECURITY_PASSWORD=$REDIS_SECURITY_PW" >> tests/.env.ci
+          echo "RATE_LIMIT_REDIS_HOST=cache-ratelimit" >> tests/.env.ci
+          echo "RATE_LIMIT_REDIS_PORT=6379" >> tests/.env.ci
+          echo "REDIS_RATELIMIT_PASSWORD=$REDIS_RATELIMIT_PW" >> tests/.env.ci
+          echo "JWT_SECRET=$JWT_SECRET" >> tests/.env.ci
+          echo "JWT_EXPIRATION=900" >> tests/.env.ci
+          echo "JWT_REFRESH_EXPIRATION=604800" >> tests/.env.ci
+          echo "JWT_STEP_UP_SESSION_MAX=900" >> tests/.env.ci
+          echo "MINIO_ROOT_USER=cloudshare_ci_minio" >> tests/.env.ci
+          echo "MINIO_ROOT_PASSWORD=A1000Minio" >> tests/.env.ci
+          echo "CRYPTO_MASTER_KEK=$CRYPTO_KEK" >> tests/.env.ci
+          echo "CRYPTO_KEK_ALLOW_RAW_PASSPHRASE=true" >> tests/.env.ci
+          echo "RATE_LIMIT_ENABLED=false" >> tests/.env.ci
+          echo "PASSWORD_BREACH_CHECK_ENABLED=false" >> tests/.env.ci
+          echo "PASSWORD_BREACH_CHECK_TIMEOUT_MS=3000" >> tests/.env.ci
+          echo "CLAMAV_MAX_CONCURRENT_SCANS=8" >> tests/.env.ci
+          echo "CLAMAV_CONCURRENCY_TIMEOUT_SECONDS=0" >> tests/.env.ci
+          echo "STORAGE_MAX_CONCURRENT_DECRYPT_DOWNLOADS=20" >> tests/.env.ci
+          echo "STORAGE_DECRYPT_ACQUIRE_TIMEOUT_SECONDS=0" >> tests/.env.ci
+          echo "SPRING_DATA_WEB_PAGEABLE_MAX_PAGE_SIZE=100" >> tests/.env.ci
+          echo "SPRING_DATA_WEB_PAGEABLE_ONE_INDEXED_PARAMETERS=false" >> tests/.env.ci
+          echo "SCHEDULER_AUDIT_PARTITION_CRON=0 0 4 * * ?" >> tests/.env.ci
+          echo "SCHEDULER_AUDIT_PARTITION_LOOKAHEAD_MONTHS=3" >> tests/.env.ci
+          echo "SCHEDULER_AUDIT_PARTITION_RETENTION_MONTHS=6" >> tests/.env.ci
+          echo "SCHEDULER_AUDIT_PARTITION_ARCHIVE_ENABLED=true" >> tests/.env.ci
+          echo "SCHEDULER_AUDIT_PARTITION_ARCHIVE_PATH_PREFIX=audit-archive" >> tests/.env.ci
+
+      - name: Generate SSL certificates
+        if: contains(github.event.inputs.target_url, 'localhost')
+        run: |
+          chmod +x nginx/ssl/generate-certs.sh
+          ./nginx/ssl/generate-certs.sh
+
+      - name: Start stack
+        if: contains(github.event.inputs.target_url, 'localhost')
+        run: docker compose --env-file tests/.env.ci up -d --build
+
+      - name: Wait for Spring Boot backend
+        if: contains(github.event.inputs.target_url, 'localhost')
+        run: |
+          for i in {1..90}; do
+            curl -sf http://localhost:8080/actuator/health && break
+            echo "Waiting for backend app... ($i)"
+            sleep 5
+            [ $i -eq 90 ] && echo "Spring Boot backend did not start in time" && exit 1
+          done
+
+      - name: Wait for Nginx Gateway
+        if: contains(github.event.inputs.target_url, 'localhost')
+        run: |
+          for i in {1..90}; do
+            curl -k -sf https://localhost/actuator/health && break
+            echo "Waiting for Nginx Gateway... ($i)"
+            sleep 5
+            [ $i -eq 90 ] && echo "Nginx Gateway did not start in time" && exit 1
+          done
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: Run Gatling Load Tests
+        run: |
+          mvn clean verify -Pperformance \
+            -Dgatling.baseUrl=${{ github.event.inputs.target_url }} \
+            -Dgatling.p95ApiMs=${{ github.event.inputs.p95_api_ms }} \
+            -Dgatling.p95StreamMs=${{ github.event.inputs.p95_stream_ms }} \
+            -Dgatling.insecure=true
+
+      - name: Archive Gatling Reports
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gatling-reports
+          path: target/gatling/
+          retention-days: 7
+
+      - name: Dump logs on failure
+        if: failure() && contains(github.event.inputs.target_url, 'localhost')
+        run: docker compose --env-file tests/.env.ci logs
+
+      - name: Cleanup env file
+        if: always() && contains(github.event.inputs.target_url, 'localhost')
+        run: |
+          docker compose --env-file tests/.env.ci down -v
+          rm -f tests/.env.ci

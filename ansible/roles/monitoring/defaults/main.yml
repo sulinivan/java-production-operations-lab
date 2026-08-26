@@ -1,0 +1,12 @@
+---
+# Значения резолвятся при установке (модель фазы 3: обновление = пересоздание VM).
+# Фактически установленные версии фиксируются в docs/architecture.md.
+kube_prometheus_stack_chart: kube-prometheus-stack
+loki_chart: loki
+alloy_chart: alloy
+
+helm_repos:
+  - { name: prometheus-community, url: "https://prometheus-community.github.io/helm-charts" }
+  - { name: grafana, url: "https://grafana.github.io/helm-charts" }
+
+monitoring_install_timeout: 600s

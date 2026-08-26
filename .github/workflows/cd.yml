@@ -1,0 +1,47 @@
+name: CD
+
+# Деплой после успешной публикации образа (workflow_run после Docker).
+# Self-hosted runner внутри Lima VM — прямой доступ к kind (README §8).
+# Неудачный rollout или smoke test = failed pipeline (README §37).
+on:
+  workflow_run:
+    workflows: [Docker]
+    types: [completed]
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, Linux, ARM64]
+    permissions:
+      contents: read
+    env:
+      KUBECONFIG: /opt/lab/kubeconfig-cd
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # полная история нужна для git describe --tags
+          fetch-depth: 0
+
+      # ВАЖНО: в workflow_run от тег-пуша head_branch = имя ветки (main),
+      # а не тег. Версию берём из тега, указывающего на собранный commit.
+      - name: Derive version
+        id: ver
+        run: |
+          git fetch --tags --force origin
+          VERSION=$(git describe --tags --exact-match HEAD | sed 's/^v//')
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Helm upgrade
+        run: |
+          helm upgrade --install cloudshare helm/cloudshare -n cloudshare \
+            --set "image.repository=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cloudshare" \
+            --set "image.tag=${{ steps.ver.outputs.VERSION }}" \
+            --set serviceMonitor.enabled=true \
+            --atomic --timeout 300s
+
+      - name: Wait for rollout
+        run: kubectl -n cloudshare rollout status --timeout=300s deploy/cloudshare
+
+      - name: Smoke test (health/upload/list/download/delete)
+        run: bash scripts/smoke-test.sh

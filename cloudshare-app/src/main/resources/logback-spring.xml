@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Include default Spring Boot logging defaults and console appender for local dev profile -->
+    <springProfile name="dev">
+        <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        
+        <logger name="org.springframework.security" level="INFO"/>
+        <logger name="com.cloudshare" level="DEBUG"/>
+    </springProfile>
+
+    <!-- JSON console logging for production/default (non-dev) profile -->
+    <springProfile name="!dev">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+                <providers>
+                    <timestamp>
+                        <timeZone>UTC</timeZone>
+                    </timestamp>
+                    <logLevel/>
+                    <loggerName/>
+                    <threadName/>
+                    <message/>
+                    <mdc/> <!-- Automatically serializes all MDC variables -->
+                    <arguments/>
+                    <stackTrace>
+                        <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                            <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                            <maxLength>2048</maxLength>
+                            <shortenedClassNameLength>20</shortenedClassNameLength>
+                            <exclude>sun\.reflect\..*</exclude>
+                            <exclude>java\.lang\.reflect\..*</exclude>
+                            <rootCauseFirst>true</rootCauseFirst>
+                        </throwableConverter>
+                    </stackTrace>
+                </providers>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE" />
+        </root>
+        
+        <logger name="org.springframework.security" level="WARN"/>
+        <!-- DEBUG for com.cloudshare belongs to the "dev" profile only (see above) —
+             several service classes log identifiers and correlation data at DEBUG
+             that shouldn't ship at DEBUG in the production/default profile. -->
+        <logger name="com.cloudshare" level="INFO"/>
+    </springProfile>
+</configuration>

@@ -1,0 +1,9 @@
+; Пример inventory. Реальный файл генерируется scripts/gen-inventory.sh
+; из terraform output и не коммитится (содержит локальные пути).
+;
+; [lab]
+; lima-java-prod-ops-lab
+;
+; [lab:vars]
+; ansible_user=<lima-user>
+; ansible_ssh_common_args=-F <path-to-lima-ssh.config>

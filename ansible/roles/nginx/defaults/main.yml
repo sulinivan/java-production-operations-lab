@@ -1,0 +1,5 @@
+---
+# Апстримы на host-loopback VM. Значения согласованы с kind/cluster.yaml
+# (extraPortMappings): cloudshare NodePort 30080 -> 8080, grafana 30300 -> 3000.
+app_port: 8080
+grafana_port: 3000

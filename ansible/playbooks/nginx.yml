@@ -1,0 +1,6 @@
+---
+- name: Edge reverse proxy
+  hosts: lab
+  become: true
+  roles:
+    - nginx

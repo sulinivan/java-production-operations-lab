@@ -1,0 +1,95 @@
+name: Security Scans
+
+# v2.4.0: replaces the commented-out design stub that previously lived in
+# docs/system-design/infrastructure-cicd.md. That doc described this job but no
+# workflow file existed — see CHANGELOG.md for context. This is the real thing.
+#
+# Two independent jobs:
+#   1. dependency-check — SCA on the Maven dependency tree (the class of tool that
+#      would have caught CVE-2025-66516 in tika-core before v2.2.0 shipped).
+#   2. container-scan   — Trivy scan of the Dockerfile-built image, since SCA on the
+#      JAR alone doesn't cover base-image / OS-package CVEs. Builds locally in the
+#      runner; does not push anywhere, so it's independent of whether the
+#      publish-images pipeline described elsewhere in the docs is ever wired up.
+#
+# Runs on push/PR to main (catches new code introducing a vulnerable dependency) AND
+# on a weekly schedule (catches a CVE freshly disclosed against a dependency that
+# hasn't changed — the whole point of continuous coverage vs. a one-time check).
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+    schedule:
+        - cron: "0 6 * * 1" # Mondays 06:00 UTC
+    workflow_dispatch: {}
+
+permissions:
+    contents: read
+
+jobs:
+    dependency-check:
+        name: OWASP Dependency-Check (SCA)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up JDK 17
+              uses: actions/setup-java@v5
+              with:
+                  java-version: "17"
+                  distribution: "temurin"
+                  cache: "maven"
+
+            # The NVD database sync is the slow part of this job. Caching it across runs
+            # keeps weekly/PR runs fast instead of re-syncing the full NVD dataset every time.
+            - name: Cache OWASP dependency-check NVD database
+              uses: actions/cache@v6
+              with:
+                  path: ~/.m2/repository/org/owasp/dependency-check-data
+                  key: owasp-dependency-check-nvd-${{ github.run_id }}
+                  restore-keys: |
+                      owasp-dependency-check-nvd-
+
+            - name: Run OWASP Dependency-Check
+              run: |
+                  if [ -n "${{ secrets.NVD_API_KEY }}" ]; then
+                    export NVD_API_KEY="${{ secrets.NVD_API_KEY }}"
+                    echo "NVD_API_KEY is set"
+                  else
+                    unset NVD_API_KEY
+                    echo "NVD_API_KEY is not set"
+                  fi
+                  mvn -B org.owasp:dependency-check-maven:check -Psecurity-scan
+
+            - name: Upload Dependency-Check report
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: dependency-check-report
+                  path: target/dependency-check-report.*
+                  retention-days: 30
+
+    container-scan:
+        name: Trivy Container Scan
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Build image locally (not pushed)
+              run: docker build -t cloudshare-backend:scan -f Dockerfile .
+
+            - name: Run Trivy vulnerability scan
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: "cloudshare-backend:scan"
+                  format: "table"
+                  exit-code: "1"
+                  ignore-unfixed: true
+                  vuln-type: "os,library"
+                  severity: "HIGH,CRITICAL"

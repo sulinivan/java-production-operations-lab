@@ -1,0 +1,6 @@
+# Профиль для диагностики (README §15: приложение не модифицируем —
+# dev-профиль уже встроен в logback-spring.xml приложения).
+# Отличия от дефолта: plaintext-логи вместо JSON и DEBUG для com.cloudshare.
+# Использование: helm upgrade ... -f values.yaml -f values-dev.yaml
+config:
+  SPRING_PROFILES_ACTIVE: dev

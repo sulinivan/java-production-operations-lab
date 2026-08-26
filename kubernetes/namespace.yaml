@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudshare
+  labels:
+    app.kubernetes.io/part-of: java-production-operations-lab

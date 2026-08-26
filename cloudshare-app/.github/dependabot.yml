@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Application dependencies (pom.xml). Security updates open PRs immediately
+  # regardless of this schedule; the interval below only governs routine
+  # version-bump PRs so they don't arrive daily.
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework*:*"
+
+  # GitHub Actions workflow dependencies (actions/checkout@vX, etc.) — these
+  # are a supply-chain surface too and are easy to forget.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"

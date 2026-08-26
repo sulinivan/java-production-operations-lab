@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+
+# Terraform
+.terraform/
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
+
+# Ansible
+*.retry
+ansible/inventory/hosts.ini
+
+# Секреты никогда не попадают в Git (README §42).
+# Реальные значения — только в GitHub Secrets и Kubernetes Secrets.
+.env
+.env.*
+!.env.example
+*.local.yaml
+
+# Локальный мусор
+tmp/
+uploads/

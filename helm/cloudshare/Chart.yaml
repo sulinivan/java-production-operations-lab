@@ -1,0 +1,8 @@
+apiVersion: v2
+name: cloudshare
+description: CloudShare secure file sharing service — application release layer проекта (README §13)
+type: application
+version: 0.1.0
+# appVersion перезаписывается при deploy через --set image.tag;
+# latest не используется как deployment identifier (README §10)
+appVersion: "0.1.0"

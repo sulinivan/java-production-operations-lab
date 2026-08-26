@@ -1,0 +1,35 @@
+# Создание bucket'ов MinIO. Job одноразовый; deploy-platform.sh пересоздаёт его
+# на каждом прогоне. Ключи секрета пробрасываются в shell-совместимые имена,
+# потому что ключи с дефисами нельзя читать как переменные окружения.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket-init
+  namespace: cloudshare
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: minio-bucket-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          env:
+            - name: MC_ACCESS
+              valueFrom:
+                secretKeyRef: { name: cloudshare-minio, key: access-key }
+            - name: MC_SECRET
+              valueFrom:
+                secretKeyRef: { name: cloudshare-minio, key: secret-key }
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              mc alias set local http://minio:9000 "$MC_ACCESS" "$MC_SECRET" &&
+              mc mb --ignore-existing local/documents local/postgres-backups local/loki &&
+              mc ls local
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }

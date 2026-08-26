@@ -1,0 +1,10 @@
+---
+# Тег образа для деплоя. README §10: конкретная версия, не latest.
+app_image_tag: "0.1.0"
+
+# Пересобрать образ даже если он уже есть локально в docker VM:
+# ansible-playbook playbooks/app.yml -e rebuild=true
+rebuild: false
+
+helm_release_name: cloudshare
+helm_timeout: 300s

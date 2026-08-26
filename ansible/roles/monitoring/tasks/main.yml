@@ -1,0 +1,107 @@
+---
+# Стек наблюдаемости в namespace cloudshare (README §24–29, §41).
+# Credentials НЕ попадают в Git и в вывод ansible: helm-команды выполняются
+# в VM с source /opt/lab/.env.lab, значения раскрываются на удалённой стороне.
+- name: Sync monitoring configuration into VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../monitoring/"
+    dest: /opt/lab/monitoring/
+
+- name: Add helm repositories
+  ansible.builtin.shell: |
+    helm repo add {{ item.name }} {{ item.url }} 2>&1 | grep -qv 'has been added' || true
+    helm repo update >/dev/null
+  args:
+    executable: /bin/bash
+  loop: "{{ helm_repos }}"
+  changed_when: true
+
+- name: Ensure exporter secret exists and grant pg_monitor
+  ansible.builtin.shell: |
+    set -e
+    bash /opt/lab/scripts/apply-secrets.sh >/dev/null
+    source /opt/lab/.env.lab
+    kubectl -n cloudshare exec deploy/postgres -- \
+      psql -U "$POSTGRES_USERNAME" -d cloudshare \
+      -c "GRANT pg_monitor TO $POSTGRES_USERNAME;"
+  args:
+    executable: /bin/bash
+  changed_when: true
+- name: Install kube-prometheus-stack
+  ansible.builtin.shell: |
+    source /opt/lab/.env.lab
+    helm upgrade --install prometheus prometheus-community/{{ kube_prometheus_stack_chart }} \
+      -n cloudshare \
+      -f /opt/lab/monitoring/prometheus/values-kps.yaml \
+      --set-string grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
+      --timeout {{ monitoring_install_timeout }}
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Install Loki (S3 backend -> MinIO bucket loki)
+  ansible.builtin.shell: |
+    source /opt/lab/.env.lab
+    helm upgrade --install loki grafana/{{ loki_chart }} \
+      -n cloudshare \
+      -f /opt/lab/monitoring/loki/values.yaml \
+      --set-string loki.storage.s3.accessKeyId="$MINIO_ACCESS_KEY" \
+      --set-string loki.storage.s3.secretAccessKey="$MINIO_SECRET_KEY" \
+      --timeout {{ monitoring_install_timeout }}
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Install Alloy (container logs -> Loki)
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install alloy grafana/{{ alloy_chart }}
+      -n cloudshare
+      -f /opt/lab/monitoring/alloy/values.yaml
+      --timeout {{ monitoring_install_timeout }}
+
+- name: Apply postgres-exporter manifests
+  ansible.builtin.command:
+    cmd: kubectl apply -f /opt/lab/monitoring/postgres-exporter.yaml
+
+# ServiceMonitor приложения включается самим chart'ом (app role / cd.yml),
+# здесь отдельный helm upgrade больше не нужен.
+
+- name: Apply alert rules (README §25)
+  ansible.builtin.command:
+    cmd: kubectl apply -f /opt/lab/monitoring/prometheus/rules/cloudshare-alerts.yaml
+
+- name: Provision Grafana dashboards as ConfigMaps with sidecar label
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl -n cloudshare create configmap grafana-dashboards-cloudshare \
+      --from-file=/opt/lab/monitoring/grafana/dashboards/ \
+      --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n cloudshare label configmap grafana-dashboards-cloudshare \
+      grafana_dashboard=1 --overwrite
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Wait for monitoring deployments
+  ansible.builtin.command:
+    cmd: kubectl -n cloudshare rollout status --timeout={{ monitoring_install_timeout }} deploy/{{ item }}
+  loop:
+    - grafana
+    - postgres-exporter
+  changed_when: false
+
+- name: Wait for Loki StatefulSet
+  ansible.builtin.command:
+    cmd: kubectl -n cloudshare rollout status --timeout={{ monitoring_install_timeout }} sts/loki
+  changed_when: false
+
+- name: Wait for Alloy DaemonSet
+  ansible.builtin.command:
+    cmd: kubectl -n cloudshare rollout status --timeout={{ monitoring_install_timeout }} ds/alloy
+  changed_when: false
+
+- name: Wait for prometheus readiness
+  ansible.builtin.command:
+    cmd: kubectl -n cloudshare wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus --timeout={{ monitoring_install_timeout }}
+  changed_when: false

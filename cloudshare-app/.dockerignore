@@ -1,0 +1,62 @@
+# Build and source exclusions
+target/
+.mvn/
+mvnw
+mvnw.cmd
+
+# Sensitive environment and configuration files
+.env
+.env.example
+.env.properties
+*.env
+
+# IDE and Editor settings
+.idea/
+.vscode/
+*.iml
+*.suo
+*.user
+*.workspace
+
+# Version Control
+.git/
+.github/
+.gitignore
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Docker configuration files
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.override.yml
+nginx/
+frontend/
+docs/
+README.md
+implementation_phase_plan.md
+LICENSE
+CONTRIBUTING.md
+tests/
+# Agent and temporary diff/patch files
+.agents/
+*.diff
+*.patch
+
+# Java / Maven artifacts
+*.class
+*.jar
+*.war
+*.ear
+*.log
+*.tmp
+
+# Local configurations
+application-local.yml
+application-local.properties
+changes.diff
+
+# JavaScript Libraries
+*/node_modules/

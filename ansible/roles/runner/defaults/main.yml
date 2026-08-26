@@ -1,0 +1,23 @@
+---
+# Self-hosted GitHub Actions runner внутри Lima VM (README §9).
+# Security implications публичного репозитория — docs/security.md и ADR-007.
+#
+# Токен регистрации одноразовый (живёт ~1 час) и НИКОГДА не попадает в Git:
+#   ansible-playbook ansible/playbooks/runner.yml -e runner_token=XXXX
+
+runner_user: github-runner
+runner_dir: "/home/{{ runner_user }}/actions-runner"
+
+# Repo, к которому привязан runner (публичный по решению ADR-007)
+github_url: "https://github.com/sulinivan/java-production-operations-lab"
+
+# Имя runner'а в GitHub UI и имя системного пользователя VM
+runner_name: lima-lab-runner
+
+# latest резолвится в момент provisioning; обновление = пересоздание VM
+# (та же модель, что у kind/kubectl/helm в ролях выше)
+runner_version: latest
+
+# Путь юнита предсказуем: actions.runner.<owner>-<repo>.<runner-name>.service
+# (owner и repo соединяются ДЕФИСОМ) — на него опирается идемпотентность сервиса
+runner_unit: "actions.runner.sulinivan-java-production-operations-lab.{{ runner_name }}.service"

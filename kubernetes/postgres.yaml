@@ -1,0 +1,84 @@
+# PostgreSQL — authoritative metadata store (README §17).
+# Deployment + PVC вместо StatefulSet: ADR-003 (осознанное ограничение лаборатории, README §12).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: cloudshare
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # RWO PVC не переживёт двух нод-владельцев при rollout
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: cloudshare
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: cloudshare-db, key: username }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cloudshare-db, key: password }
+            # Поддиректория pgdata: том монтируется поверх data/,
+            # без этого postgres откажется инициализировать "lost+found"
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1500Mi }
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pg_isready -U $POSTGRES_USER -d cloudshare"]
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pg_isready -U $POSTGRES_USER -d cloudshare"]
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: cloudshare
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudshare-postgres
+  namespace: cloudshare
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
